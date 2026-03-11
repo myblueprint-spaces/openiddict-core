@@ -2161,4 +2161,102 @@ public static partial class OpenIddictClientWebIntegrationHandlers
             return ValueTask.CompletedTask;
         }
     }
+
+    public sealed class ExtractAppleUserParameterFromRedirection : IOpenIddictClientHandler<ValidateRedirectionRequestContext>
+    {
+        internal const string FirstNameKey = "apple:firstName";
+        internal const string LastNameKey = "apple:lastName";
+
+        public static OpenIddictClientHandlerDescriptor Descriptor { get; }
+            = OpenIddictClientHandlerDescriptor.CreateBuilder<ValidateRedirectionRequestContext>()
+                .UseSingletonHandler<ExtractAppleUserParameterFromRedirection>()
+                .SetOrder(int.MinValue + 50_000)
+                .SetType(OpenIddictClientHandlerType.Custom)
+                .Build();
+
+        public ValueTask HandleAsync(ValidateRedirectionRequestContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            if (!context.Request.RequestUri?.EndsWith("signin-apple") ?? false)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            // Apple sends the `user` parameter as a raw JSON string in the form POST body.
+            var userParam = (string?)context.Request["user"];
+            if (string.IsNullOrEmpty(userParam))
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            string? firstName = null;
+            string? lastName = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(userParam);
+                if (doc.RootElement.TryGetProperty("name", out var name))
+                {
+                    firstName = name.TryGetProperty("firstName", out var fn) ? fn.GetString() : null;
+                    lastName = name.TryGetProperty("lastName", out var ln) ? ln.GetString() : null;
+                }
+            }
+            catch (JsonException)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            if (!string.IsNullOrEmpty(firstName))
+            {
+                context.Transaction.SetProperty(FirstNameKey, firstName);
+            }
+
+            if (!string.IsNullOrEmpty(lastName))
+            {
+                context.Transaction.SetProperty(LastNameKey, lastName);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    public sealed class PopulateClaimsFromAppleUserParameter : IOpenIddictClientHandler<ProcessAuthenticationContext>
+    {
+        public static OpenIddictClientHandlerDescriptor Descriptor { get; }
+            = OpenIddictClientHandlerDescriptor.CreateBuilder<ProcessAuthenticationContext>()
+                .UseSingletonHandler<PopulateClaimsFromAppleUserParameter>()
+                .SetOrder(100_500)
+                .SetType(OpenIddictClientHandlerType.Custom)
+                .Build();
+
+        public ValueTask HandleAsync(ProcessAuthenticationContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+
+            var firstName = context.Transaction.GetProperty<string>(ExtractAppleUserParameterFromRedirection.FirstNameKey);
+            var lastName = context.Transaction.GetProperty<string>(ExtractAppleUserParameterFromRedirection.LastNameKey);
+
+            if (string.IsNullOrEmpty(firstName) && string.IsNullOrEmpty(lastName))
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            var issuer = context.Registration.ClaimsIssuer
+                        ?? context.Registration.ProviderName
+                        ?? context.Registration.Issuer?.AbsoluteUri
+                        ?? "Apple";
+
+            if (!string.IsNullOrEmpty(firstName))
+            {
+                context.MergedPrincipal.SetClaim(Claims.GivenName, firstName, issuer);
+            }
+
+            if (!string.IsNullOrEmpty(lastName))
+            {
+                context.MergedPrincipal.SetClaim(Claims.FamilyName, lastName, issuer);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
 }

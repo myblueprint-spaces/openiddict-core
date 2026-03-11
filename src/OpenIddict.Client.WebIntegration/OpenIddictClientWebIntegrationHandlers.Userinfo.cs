@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Logging;
 using static OpenIddict.Client.SystemNetHttp.OpenIddictClientSystemNetHttpConstants;
 using static OpenIddict.Client.SystemNetHttp.OpenIddictClientSystemNetHttpHandlerFilters;
 using static OpenIddict.Client.SystemNetHttp.OpenIddictClientSystemNetHttpHandlers;
@@ -509,18 +510,6 @@ public static partial class OpenIddictClientWebIntegrationHandlers
                         context.Response[Claims.Name] = $"{name?["first"]} {name?["last"]}";
                         context.Response[Claims.FamilyName] = name?["last"];
                         context.Response[Claims.GivenName] = name?["first"];
-                    }
-                }
-
-                // Note: Apple returns a non-standard "name" claim formatted as a JSON object.
-                else if (context.Registration.ProviderType is ProviderTypes.Apple)
-                {
-                    var name = context.Response[Claims.Name];
-                    if (name is not null)
-                    {
-                        context.Response[Claims.Name] = $"{name?["firstName"]} {name?["lastName"]}";
-                        context.Response[Claims.FamilyName] = name?["lastName"];
-                        context.Response[Claims.GivenName] = name?["firstName"];
                     }
                 }
 
